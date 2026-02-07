@@ -1,0 +1,358 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <!-- Разрешаем смешанный контент (HTTP) -->
+    <meta http-equiv="Content-Security-Policy" content="upgrade-insecure-requests">
+    <title>TV Asahi Player (Asahi Source)</title>
+    <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
+    <style>
+        :root {
+            --bg-color: #0f0f13;
+            --card-bg: #1e1e24;
+            --accent: #ff0040;
+            --text-main: #ffffff;
+            --text-muted: #8b8b99;
+        }
+
+        body {
+            font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text-main);
+            height: 100vh;
+            margin: 0;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            overflow: hidden;
+        }
+
+        .container {
+            width: 98%;
+            height: 98vh;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+
+        /* --- Player (Huge) --- */
+        .player-wrapper {
+            position: relative;
+            flex-grow: 1; 
+            background: #000;
+            border-radius: 8px;
+            overflow: hidden;
+            border: 1px solid #333;
+            box-shadow: 0 0 30px rgba(0,0,0,0.5);
+        }
+
+        video, iframe {
+            width: 100%;
+            height: 100%;
+            object-fit: contain;
+            display: block;
+            border: none;
+        }
+
+        iframe { display: none; }
+
+        /* --- Controls --- */
+        .controls {
+            display: flex;
+            gap: 10px;
+            justify-content: center;
+            padding: 5px;
+        }
+
+        button {
+            background: #222;
+            color: #aaa;
+            border: 1px solid #333;
+            padding: 12px;
+            font-size: 1rem;
+            cursor: pointer;
+            border-radius: 4px;
+            flex: 1;
+            transition: 0.2s;
+        }
+
+        button:hover { background: #333; color: #fff; }
+
+        button.active {
+            background: var(--accent);
+            color: white;
+            border-color: var(--accent);
+            font-weight: bold;
+        }
+
+        /* --- Info Panel --- */
+        .info-panel {
+            background: var(--card-bg);
+            padding: 15px;
+            border-radius: 8px;
+            display: grid;
+            grid-template-columns: 2fr 1fr 1fr;
+            gap: 15px;
+            align-items: center;
+            min-height: 110px;
+        }
+
+        .program-info {
+            border-right: 1px solid #333;
+            padding-right: 15px;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            overflow: hidden;
+        }
+
+        h3 {
+            font-size: 0.75rem;
+            color: var(--text-muted);
+            margin: 0 0 5px 0;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        .prog-title-ru {
+            font-size: 1.5rem;
+            font-weight: 600;
+            color: #fff;
+            line-height: 1.2;
+            margin-bottom: 5px;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .prog-title-en {
+            font-size: 1.1rem;
+            color: #ccc;
+            font-weight: 400;
+            margin-bottom: 5px;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .prog-orig {
+            font-size: 0.8rem;
+            color: #555;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .time-box {
+            text-align: center;
+        }
+
+        .time-big {
+            font-size: 1.8rem;
+            font-weight: 300;
+            font-variant-numeric: tabular-nums;
+        }
+
+        /* --- Mobile --- */
+        @media (max-width: 768px) {
+            .info-panel { grid-template-columns: 1fr; text-align: center; gap: 10px; }
+            .program-info { border-right: none; border-bottom: 1px solid #333; padding-bottom: 10px; padding-right: 0; }
+            .prog-title-ru { font-size: 1.2rem; white-space: normal; }
+            .prog-title-en { white-space: normal; }
+            .player-wrapper { height: 50vh; flex-grow: 0; }
+            .container { height: auto; padding: 5px; }
+        }
+    </style>
+</head>
+<body>
+
+    <div class="container">
+        <!-- Player -->
+        <div class="player-wrapper">
+            <video id="video" controls playsinline></video>
+            <iframe id="okFrame" allow="autoplay; fullscreen" allowfullscreen></iframe>
+        </div>
+
+        <!-- Info -->
+        <div class="info-panel">
+            <div class="program-info">
+                <h3>Now On Air (Asahi)</h3>
+                <div id="progRu" class="prog-title-ru">Поиск программы...</div>
+                <div id="progEn" class="prog-title-en">Loading Schedule...</div>
+                <div id="progJp" class="prog-orig">Connecting to asahi.co.jp...</div>
+            </div>
+            <div class="time-box">
+                <h3>Moscow</h3>
+                <div id="mskTime" class="time-big">--:--</div>
+            </div>
+            <div class="time-box">
+                <h3>Tokyo (JST)</h3>
+                <div id="tokyoTime" class="time-big">--:--</div>
+            </div>
+        </div>
+
+        <!-- Controls -->
+        <div class="controls">
+            <button onclick="setSource(1, this)" class="active">Source 1 (HLS)</button>
+            <button onclick="setSource(2, this)">Source 2 (HTTP)</button>
+            <button onclick="setSource(3, this)">Source 3 (OK.ru)</button>
+        </div>
+    </div>
+
+    <script>
+        const video = document.getElementById('video');
+        const okFrame = document.getElementById('okFrame');
+        let hls = null;
+
+        // Sources
+        const sources = {
+            1: 'https://nl.utako.moe/TV_Asahi/index.m3u8',
+            2: 'http://cdns.jp-primehome.com:8000/zhongying/live/playlist.m3u8?cid=hdgd06',
+            3: 'https://ok.ru/videoembed/26792622590' 
+        };
+
+        // --- Player Logic ---
+        function setSource(id, btn) {
+            document.querySelectorAll('button').forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
+
+            if(hls) { hls.destroy(); hls = null; }
+            video.pause();
+            video.removeAttribute('src');
+
+            if(id === 3) {
+                video.style.display = 'none';
+                okFrame.style.display = 'block';
+                okFrame.src = "https://ok.ru/video/search?q=TV+Asahi+Live&ordering=DATE"; 
+            } else {
+                okFrame.style.display = 'none';
+                okFrame.src = "";
+                video.style.display = 'block';
+                
+                const url = sources[id];
+                if(Hls.isSupported()) {
+                    hls = new Hls();
+                    hls.loadSource(url);
+                    hls.attachMedia(video);
+                    hls.on(Hls.Events.MANIFEST_PARSED, () => video.play().catch(e => { video.muted=true; video.play(); }));
+                } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
+                    video.src = url;
+                    video.play();
+                }
+            }
+        }
+
+        // --- Asahi Scraper Logic ---
+        async function fetchAsahiProgram() {
+            try {
+                // 1. Узнаем текущий час в Токио (0-23)
+                const now = new Date(new Date().toLocaleString("en-US", {timeZone: "Asia/Tokyo"}));
+                const currentHour = now.getHours(); 
+
+                // 2. Грузим страницу Asahi через прокси
+                const target = 'https://www.asahi.co.jp/tvprogram/';
+                const proxy = 'https://api.allorigins.win/get?url=' + encodeURIComponent(target);
+                
+                const res = await fetch(proxy);
+                const data = await res.json();
+                
+                if (!data.contents) throw new Error("Empty content");
+
+                // 3. Парсим HTML
+                const parser = new DOMParser();
+                const doc = parser.parseFromString(data.contents, 'text/html');
+
+                // 4. Логика поиска:
+                // Сайт Asahi ABC имеет сложную структуру, но время часто пишется в span или div.
+                // Ищем элемент, который содержит текущее время, например "14:"
+                // Важно: нужно найти самое "свежее" время, ближайшее к текущему.
+                
+                // Ищем все элементы, содержащие цифры часа и двоеточие (например "14:")
+                const timePattern = new RegExp(`${currentHour.toString().padStart(2, '0')}:`);
+                const allElements = doc.body.getElementsByTagName('*');
+                
+                let foundTitle = "Program not found";
+                let found = false;
+
+                for (let i = 0; i < allElements.length; i++) {
+                    const el = allElements[i];
+                    // Проверяем, есть ли в тексте элемента время "HH:" и это не скрипт
+                    if (el.tagName !== 'SCRIPT' && el.children.length === 0 && el.textContent.trim().match(timePattern)) {
+                        
+                        // Если нашли время, ищем заголовок рядом.
+                        // Обычно заголовок находится в родительском контейнере или в соседнем элементе.
+                        
+                        // Поднимаемся к родителю (строка таблицы или блок программы)
+                        const parent = el.closest('tr') || el.closest('li') || el.parentElement;
+                        
+                        if (parent) {
+                            // Ищем самый длинный текст внутри этого блока, исключая само время
+                            const textContent = parent.innerText;
+                            // Простая эвристика: берем текст, удаляем время, чистим
+                            let cleanText = textContent.replace(/\d{1,2}:\d{2}/g, '').trim();
+                            
+                            if (cleanText.length > 3) {
+                                foundTitle = cleanText.split('\n')[0]; // Берем первую строку названия
+                                found = true;
+                                break; // Нашли первое совпадение часа - считаем это текущей программой
+                            }
+                        }
+                    }
+                }
+
+                if (!found) {
+                     // Fallback: пробуем искать просто по классу 'title' или 'program_title' если есть
+                     // Но лучше честно сказать что не нашли
+                     throw new Error("Time slot match failed");
+                }
+
+                document.getElementById('progJp').textContent = foundTitle;
+                
+                // 5. Перевод
+                translateAll(foundTitle);
+
+            } catch (e) {
+                console.warn(e);
+                document.getElementById('progRu').textContent = "TV Asahi Live";
+                document.getElementById('progEn').textContent = "Stream Online";
+                document.getElementById('progJp').textContent = "Schedule Data Unavailable";
+            }
+        }
+
+        async function translateAll(text) {
+            // RU
+            try {
+                const urlRu = `https://api.mymemory.translated.net/get?q=${encodeURIComponent(text)}&langpair=ja|ru`;
+                const resRu = await fetch(urlRu);
+                const jsonRu = await resRu.json();
+                document.getElementById('progRu').textContent = jsonRu.responseData.translatedText;
+            } catch(e) { document.getElementById('progRu').textContent = text; }
+
+            // EN
+            try {
+                const urlEn = `https://api.mymemory.translated.net/get?q=${encodeURIComponent(text)}&langpair=ja|en`;
+                const resEn = await fetch(urlEn);
+                const jsonEn = await resEn.json();
+                document.getElementById('progEn').textContent = jsonEn.responseData.translatedText;
+            } catch(e) { document.getElementById('progEn').textContent = text; }
+        }
+
+        // --- Clock ---
+        function tick() {
+            const n = new Date();
+            document.getElementById('mskTime').innerText = n.toLocaleTimeString('ru-RU', {timeZone:'Europe/Moscow', hour:'2-digit', minute:'2-digit'});
+            document.getElementById('tokyoTime').innerText = n.toLocaleTimeString('en-US', {timeZone:'Asia/Tokyo', hour:'2-digit', minute:'2-digit'});
+        }
+
+        // Init
+        setInterval(tick, 1000);
+        tick();
+        fetchAsahiProgram(); // Start Scraper
+        setInterval(fetchAsahiProgram, 300000); // Refresh every 5 min
+        setSource(1, document.querySelector('button'));
+
+    </script>
+</body>
+</html>
